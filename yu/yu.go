@@ -34,6 +34,15 @@ func New() *Engine {
     return engine
 }
 
+/*
+    内置中间件
+*/
+func Default() *Engine {
+    engine := New()
+    engine.Use(Logger(), Recover())
+    return engine
+}
+
 func (engine *Engine) SetFuncMap(funcMap template.FuncMap) {
     engine.funcMap = funcMap
 }
