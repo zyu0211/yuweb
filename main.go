@@ -1,39 +1,54 @@
 package main
 
 import (
-    "log"
-    "net/http"
-    "time"
+	"fmt"
+	"net/http"
+	"html/template"
+	"time"
 
-    "yu"
+	"yu"
 )
 
-func onlyForV2() yu.HandlerFunc {
-    return func(c *yu.Context) {
-        // Start timer
-        t := time.Now()
-        // if a server error occurred
-        c.HTML(500, "Internal Server Error")
-        // Calculate resolution time
-        log.Printf("[%d] %s in %v for group v2", c.StatusCode, c.Req.RequestURI, time.Since(t))
-    }
+type student struct {
+    Name string
+    Age int8
+}
+
+func FormatAsDate(t time.Time) string {
+    year, month, day := t.Date()
+    return fmt.Sprintf("%d-%02d-%02d", year, month, day)
 }
 
 func main() {
     engine := yu.New()
     engine.Use(yu.Logger()) // global midlleware
-    engine.GET("/", func(c *yu.Context) {
-        c.HTML(http.StatusOK, "<h1>Hello Gee</h1>")
+    engine.SetFuncMap(template.FuncMap{
+        "FormatAsDate": FormatAsDate,
     })
 
-    v2 := engine.Group("/v2")
-    v2.Use(onlyForV2()) // v2 group middleware
-    {
-        v2.GET("/hello/:name", func(c *yu.Context) {
-            // expect /hello/geektutu
-            c.String(http.StatusOK, "hello %s, you're at %s\n", c.Param("name"), c.Path)
+    engine.LoadHTMLGlob("templates/*")
+    engine.Static("/assets", "./static")
+
+    stu1 := &student{Name: "zhangsan", Age: 20}
+    stu2 := &student{Name: "lisi", Age: 22}
+
+    engine.GET("/", func(c *yu.Context) {
+        c.HTML(http.StatusOK, "css.tmpl", nil)
+    })
+
+    engine.GET("/students", func(c *yu.Context) {
+        c.HTML(http.StatusOK, "arr.tmpl", yu.H{
+            "title":  "yu",
+            "stuArr": [2]*student{stu1, stu2},
         })
-    }
+    })
+
+    engine.GET("/date", func(c *yu.Context) {
+        c.HTML(http.StatusOK, "custom_func.tmpl", yu.H{
+            "title": "yu",
+            "now":   time.Date(2019, 8, 17, 0, 0, 0, 0, time.UTC),
+        })
+    })
 
     engine.Run(":9999")
 }

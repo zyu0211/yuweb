@@ -3,17 +3,13 @@ package yu
 import (
 	"log"
 	"net/http"
+	"path"
 	"strings"
+	"html/template"
 )
 
 // 定义 handerFunc 类型，以便复用
 type HandlerFunc func(*Context)
-
-type RouterGroup struct {
-    prefix string
-    middleWares []HandlerFunc
-    engine *Engine
-}
 
 /*
     定义结构体：Engine，实现 http.Handler 接口的 ServeHTTP 方法
@@ -22,6 +18,9 @@ type Engine struct {
     *RouterGroup
     router *Router
     groups []*RouterGroup
+
+    htmlTemplates *template.Template
+    funcMap template.FuncMap
 }
 
 /*
@@ -33,6 +32,14 @@ func New() *Engine {
     engine.RouterGroup = &RouterGroup{engine: engine}
     engine.groups = []*RouterGroup{engine.RouterGroup}
     return engine
+}
+
+func (engine *Engine) SetFuncMap(funcMap template.FuncMap) {
+    engine.funcMap = funcMap
+}
+
+func (engine *Engine) LoadHTMLGlob(path string) {
+    engine.htmlTemplates = template.Must(template.New("").Funcs(engine.funcMap).ParseGlob(path))
 }
 
 func (engine *Engine) addRoute(method string, path string, handler HandlerFunc) {
@@ -61,7 +68,17 @@ func (engine *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
     c := newContext(w, req)
     c.handlers = middleWares
+    c.engine = engine
     engine.router.handle(c)
+}
+
+/*
+    路由分组
+*/
+type RouterGroup struct {
+    prefix string
+    middleWares []HandlerFunc
+    engine *Engine
 }
 
 /*
@@ -97,4 +114,30 @@ func (group *RouterGroup) POST(path string, handler HandlerFunc) {
 */
 func (group *RouterGroup) Use(middleWares ...HandlerFunc) {
     group.middleWares = append(group.middleWares, middleWares...)
+}
+
+/*
+    静态资源处理器
+*/
+func (group *RouterGroup) createStaticHandler(relativePath string, fs http.FileSystem) HandlerFunc {
+    absolutePath := path.Join(group.prefix, relativePath)
+    fileServer := http.StripPrefix(absolutePath, http.FileServer(fs))
+
+    return func(c *Context) {
+        file := c.Params["filepath"]
+        if _, err := fs.Open(file); err != nil {
+            c.Status(http.StatusNotFound)
+            return
+        }
+        fileServer.ServeHTTP(c.Writer, c.Req)
+    }
+}
+
+/*
+    映射静态资源
+*/
+func (group *RouterGroup) Static(relativePath string, root string) {
+    handler := group.createStaticHandler(relativePath, http.Dir(root))
+    urlPath := path.Join(relativePath, "/*filepath")
+    group.GET(urlPath, handler)
 }
